@@ -1,0 +1,163 @@
+name: Nightly Security Scan
+
+on:
+  schedule:
+    # Run every night at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Audit all packages
+        run: |
+          echo "=== Auditing Shared Library ==="
+          cd shared && npm ci && npm audit --json > ../audit-shared.json || true && cd ..
+
+          services=("auth-service" "user-service" "product-service" "order-service" "payment-service" "notification-service")
+          for service in "${services[@]}"; do
+            echo "=== Auditing $service ==="
+            cd "services/$service"
+            npm ci
+            npm audit --json > "../../audit-$service.json" || true
+            cd ../..
+          done
+
+      - name: Upload audit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-results
+          path: audit-*.json
+
+      - name: Check for high/critical vulnerabilities
+        run: |
+          has_critical=false
+          for file in audit-*.json; do
+            if [ -f "$file" ]; then
+              critical=$(jq '.metadata.vulnerabilities.critical // 0' "$file")
+              high=$(jq '.metadata.vulnerabilities.high // 0' "$file")
+
+              if [ "$critical" -gt 0 ] || [ "$high" -gt 0 ]; then
+                echo "⚠️  Found $critical critical and $high high vulnerabilities in $file"
+                has_critical=true
+              fi
+            fi
+          done
+
+          if [ "$has_critical" = true ]; then
+            echo "❌ Critical or high vulnerabilities found!"
+            exit 1
+          fi
+
+  docker-scan:
+    name: Docker Image Scan
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        service:
+          - auth-service
+          - user-service
+          - product-service
+          - order-service
+          - payment-service
+          - notification-service
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t nodecart-${{ matrix.service }}:scan -f services/${{ matrix.service }}/Dockerfile .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: nodecart-${{ matrix.service }}:scan
+          format: 'json'
+          output: 'trivy-${{ matrix.service }}.json'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy results
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-${{ matrix.service }}
+          path: trivy-${{ matrix.service }}.json
+
+  infrastructure-scan:
+    name: Infrastructure Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: dockerfile,kubernetes
+          output_format: json
+          output_file_path: checkov-results.json
+        continue-on-error: true
+
+      - name: Upload Checkov results
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkov-results
+          path: checkov-results.json
+
+  notify:
+    name: Send Notification
+    runs-on: ubuntu-latest
+    needs: [security-audit, docker-scan, infrastructure-scan]
+    if: failure()
+
+    steps:
+      - name: Send Slack notification
+        if: ${{ secrets.SLACK_WEBHOOK != '' }}
+        run: |
+          curl -X POST ${{ secrets.SLACK_WEBHOOK }} \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "text": "🚨 Nightly security scan found vulnerabilities in NodeCart!",
+              "attachments": [{
+                "color": "danger",
+                "fields": [{
+                  "title": "Repository",
+                  "value": "${{ github.repository }}",
+                  "short": true
+                }, {
+                  "title": "Workflow",
+                  "value": "Nightly Security Scan",
+                  "short": true
+                }]
+              }]
+            }'
+
+      - name: Create issue
+        uses: actions/github-script@v7
+        if: failure()
+        with:
+          script: |
+            const today = new Date().toISOString().split('T')[0];
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Security vulnerabilities detected - ${today}`,
+              body: `The nightly security scan detected vulnerabilities.\n\n` +
+                    `**Workflow Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\n` +
+                    `Please review the security audit results and update dependencies.`,
+              labels: ['security', 'high-priority']
+            });

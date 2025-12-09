@@ -1,0 +1,28 @@
+{
+  "name": "@nodecart/shared",
+  "version": "1.0.0",
+  "description": "Shared utilities and middleware for NodeCart microservices",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "jest",
+    "test:coverage": "jest --coverage"
+  },
+  "keywords": ["microservices", "middleware", "utilities"],
+  "author": "NodeCart Team",
+  "license": "MIT",
+  "dependencies": {
+    "amqplib": "^0.10.3",
+    "bcryptjs": "^2.4.3",
+    "express-rate-limit": "^7.1.5",
+    "express-validator": "^7.0.1",
+    "ioredis": "^5.3.2",
+    "joi": "^17.11.0",
+    "jsonwebtoken": "^9.0.2",
+    "rate-limit-redis": "^4.2.0",
+    "winston": "^3.11.0",
+    "winston-elasticsearch": "^0.17.4"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}

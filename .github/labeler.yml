@@ -1,0 +1,64 @@
+# Auto-label PRs based on changed files
+
+# Service labels
+'auth-service':
+  - services/auth-service/**/*
+
+'user-service':
+  - services/user-service/**/*
+
+'product-service':
+  - services/product-service/**/*
+
+'order-service':
+  - services/order-service/**/*
+
+'payment-service':
+  - services/payment-service/**/*
+
+'notification-service':
+  - services/notification-service/**/*
+
+# Component labels
+'shared':
+  - shared/**/*
+
+'api-gateway':
+  - api-gateway/**/*
+
+'infrastructure':
+  - infrastructure/**/*
+  - docker-compose.yml
+  - docker-compose.*.yml
+
+# Type labels
+'documentation':
+  - '**/*.md'
+  - docs/**/*
+
+'tests':
+  - '**/*.test.js'
+  - '**/*.spec.js'
+  - '**/__tests__/**/*'
+
+'ci/cd':
+  - .github/**/*
+  - scripts/**/*
+
+'docker':
+  - '**/Dockerfile'
+  - docker-compose*.yml
+  - .dockerignore
+
+'dependencies':
+  - '**/package.json'
+  - '**/package-lock.json'
+
+# Priority labels
+'breaking-change':
+  - any: ['**/CHANGELOG.md']
+
+# Database changes
+'database':
+  - '**/models/**/*'
+  - '**/migrations/**/*'

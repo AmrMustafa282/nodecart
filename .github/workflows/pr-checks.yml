@@ -1,0 +1,181 @@
+name: Pull Request Checks
+
+on:
+  pull_request:
+    branches: [main, develop]
+    types: [opened, synchronize, reopened]
+
+jobs:
+  # Quick validation
+  validate:
+    name: Quick Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check commit messages
+        run: |
+          echo "Checking commit messages..."
+          git log --format=%B -n 1 ${{ github.event.pull_request.head.sha }} | head -1
+
+      - name: Check for large files
+        run: |
+          echo "Checking for large files..."
+          find . -type f -size +10M | grep -v node_modules | grep -v .git || echo "No large files found"
+
+      - name: Validate Docker Compose
+        run: |
+          docker-compose config > /dev/null
+          echo "✅ Docker Compose configuration is valid"
+
+      - name: Check for secrets
+        run: |
+          echo "Checking for exposed secrets..."
+          if grep -r "password.*=.*['\"].*['\"]" --include="*.js" --include="*.yml" . | grep -v node_modules | grep -v test; then
+            echo "⚠️  Warning: Possible hardcoded passwords found"
+          else
+            echo "✅ No hardcoded secrets detected"
+          fi
+
+  # PR Size Check
+  pr-size:
+    name: PR Size Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check PR size
+        run: |
+          files_changed=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | wc -l)
+          lines_changed=$(git diff --shortstat origin/${{ github.base_ref }}...HEAD | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+
+          echo "Files changed: $files_changed"
+          echo "Lines changed: $lines_changed"
+
+          if [ "$files_changed" -gt 50 ]; then
+            echo "⚠️  Warning: This PR changes $files_changed files. Consider breaking it into smaller PRs."
+          fi
+
+          if [ "$lines_changed" -gt 1000 ]; then
+            echo "⚠️  Warning: This PR changes $lines_changed lines. Consider breaking it into smaller PRs."
+          fi
+
+  # Dependency Check
+  dependency-check:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Audit shared library
+        working-directory: ./shared
+        run: |
+          npm ci
+          npm audit --audit-level=moderate || echo "⚠️  Vulnerabilities found in shared library"
+
+      - name: Audit services
+        run: |
+          services=("auth-service" "user-service" "product-service" "order-service" "payment-service" "notification-service")
+          for service in "${services[@]}"; do
+            echo "Auditing $service..."
+            cd "services/$service"
+            npm ci
+            npm audit --audit-level=moderate || echo "⚠️  Vulnerabilities found in $service"
+            cd ../..
+          done
+
+  # Documentation Check
+  docs-check:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check README exists
+        run: |
+          if [ ! -f README.md ]; then
+            echo "❌ README.md not found"
+            exit 1
+          fi
+          echo "✅ README.md found"
+
+      - name: Check service documentation
+        run: |
+          services=("auth-service" "user-service" "product-service" "order-service" "payment-service" "notification-service")
+          for service in "${services[@]}"; do
+            if [ ! -f "services/$service/README.md" ]; then
+              echo "⚠️  Warning: README.md not found in $service"
+            else
+              echo "✅ README.md found in $service"
+            fi
+          done
+
+      - name: Check for TODO comments
+        run: |
+          todos=$(grep -r "TODO\|FIXME" --include="*.js" --include="*.ts" . | grep -v node_modules | wc -l)
+          echo "Found $todos TODO/FIXME comments"
+          if [ "$todos" -gt 0 ]; then
+            echo "TODO/FIXME comments found:"
+            grep -r "TODO\|FIXME" --include="*.js" --include="*.ts" . | grep -v node_modules | head -10
+          fi
+
+  # Label PR
+  label-pr:
+    name: Auto Label PR
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Label PR based on changes
+        uses: actions/labeler@v5
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Comment on PR
+  pr-comment:
+    name: PR Comment
+    runs-on: ubuntu-latest
+    needs: [validate, pr-size, dependency-check]
+    if: github.event.action == 'opened'
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '👋 Thanks for your contribution!\n\n' +
+                    '✅ All validation checks passed.\n\n' +
+                    '📋 Checklist:\n' +
+                    '- [ ] Tests added/updated\n' +
+                    '- [ ] Documentation updated\n' +
+                    '- [ ] Changes are backwards compatible\n' +
+                    '- [ ] No breaking changes\n\n' +
+                    '🔍 This PR will be reviewed soon.'
+            })

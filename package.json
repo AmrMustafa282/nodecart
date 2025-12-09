@@ -1,0 +1,39 @@
+{
+  "name": "nodecart",
+  "version": "1.0.0",
+  "description": "Production-grade microservices e-commerce platform",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "services/*"
+  ],
+  "scripts": {
+    "install:all": "npm install && npm install --prefix shared && for dir in services/*; do npm install --prefix $dir; done",
+    "dev": "concurrently \"npm run dev --prefix services/auth-service\" \"npm run dev --prefix services/user-service\" \"npm run dev --prefix services/product-service\" \"npm run dev --prefix services/order-service\" \"npm run dev --prefix services/payment-service\" \"npm run dev --prefix services/notification-service\"",
+    "test": "npm run test --workspaces",
+    "test:coverage": "npm run test:coverage --workspaces",
+    "build": "npm run build --workspaces",
+    "docker:build": "docker-compose build",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "clean": "rm -rf node_modules services/*/node_modules shared/node_modules",
+    "lint": "eslint . --ext .js,.ts",
+    "format": "prettier --write \"**/*.{js,ts,json,md}\""
+  },
+  "keywords": [
+    "microservices",
+    "nodejs",
+    "express",
+    "rabbitmq",
+    "docker",
+    "clean-architecture"
+  ],
+  "author": "NodeCart Team",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "eslint": "^8.55.0",
+    "prettier": "^3.1.1"
+  }
+}
