@@ -40,7 +40,7 @@ jobs:
         run: docker build -t nodecart-api-gateway:test -f api-gateway/Dockerfile .
 
       - name: Validate Docker Compose
-        run: docker-compose config > /dev/null
+        run: docker compose config > /dev/null
 
       - name: Build summary
         run: |
